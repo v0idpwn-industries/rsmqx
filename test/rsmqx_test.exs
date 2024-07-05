@@ -84,6 +84,14 @@ defmodule RsmqxTest do
     end
   end
 
+  describe "list_queues/1" do
+    test "success", %{conn: conn, queue_name: name} do
+      {:ok, queues} = Rsmqx.list_queues(conn)
+
+      assert name in queues
+    end
+  end
+
   defp generate_name, do: "q-#{Enum.random(100_000..999_999)}"
 
   defp get_all(conn, name), do: Redix.command!(conn, ["hgetall", name])

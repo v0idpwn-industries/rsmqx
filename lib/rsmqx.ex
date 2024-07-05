@@ -3,6 +3,11 @@ defmodule Rsmqx do
   Documentation for `Rsmqx`.
   """
 
+  @queue_indexator "rsmq:QUEUES"
+
+  @doc """
+  Create a queue for messages
+  """
   def create_queue(conn, queue_name, opts \\ []) do
     key = queue_key(queue_name)
 
@@ -28,9 +33,14 @@ defmodule Rsmqx do
   end
 
   defp index_queue(conn, queue_name) do
-    Redix.command(conn, ["sadd", "rsmq:QUEUES", queue_name])
+    Redix.command(conn, ["sadd", @queue_indexator, queue_name])
     |> handle_result(1, :queue_index_exists)
   end
+
+  @doc """
+  List all queues
+  """
+  def list_queues(conn), do: Redix.command(conn, ["smembers", @queue_indexator])
 
   defp queue_key(queue_name), do: "rsmq:#{queue_name}:Q"
 
