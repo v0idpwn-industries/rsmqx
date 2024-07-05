@@ -60,6 +60,28 @@ defmodule RsmqxTest do
     test "fail when queue exists", %{conn: conn, queue_name: name} do
       assert Rsmqx.create_queue(conn, name) == {:error, :queue_exists}
     end
+
+    test "fail when params are invalid", %{conn: conn} do
+      name = 1234
+      params = [vt: 30.5, delay: "asdf", maxsize: %{}]
+
+      assert Rsmqx.create_queue(conn, name, params) ==
+               {:error,
+                %{
+                  message: :invalid_params,
+                  errors: [
+                    queue_name: "must be string",
+                    vt: "must be integer",
+                    delay: "must be integer",
+                    maxsize: "must be integer"
+                  ]
+                }}
+
+      {:ok, queues} = Redix.command(conn, ["smembers", "rsmq:QUEUES"])
+
+      assert name not in queues
+      assert get_all(conn, "rsmq:#{name}:Q") == []
+    end
   end
 
   defp generate_name, do: "q-#{Enum.random(100_000..999_999)}"

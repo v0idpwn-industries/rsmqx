@@ -6,8 +6,11 @@ defmodule Rsmqx do
   def create_queue(conn, queue_name, opts \\ []) do
     key = queue_key(queue_name)
 
-    case do_create_queue(conn, key, opts) do
-      :ok -> index_queue(conn, queue_name)
+    with :ok <- validate_params([{:queue_name, queue_name} | opts]),
+         :ok <- do_create_queue(conn, key, opts),
+         :ok <- index_queue(conn, queue_name) do
+      :ok
+    else
       error -> error
     end
   end
@@ -34,4 +37,25 @@ defmodule Rsmqx do
   defp handle_result({:error, error}, _, _), do: {:error, error}
   defp handle_result({:ok, resp}, expected, _) when resp == expected, do: :ok
   defp handle_result(_, _, error_message), do: {:error, error_message}
+
+  defp validate_params(opts) do
+    %{opts: opts, errors: []}
+    |> validate_opt(:queue_name, &is_binary/1, "must be string")
+    |> validate_opt(:vt, &is_integer/1, "must be integer")
+    |> validate_opt(:delay, &is_integer/1, "must be integer")
+    |> validate_opt(:maxsize, &is_integer/1, "must be integer")
+    |> case do
+      %{errors: []} -> :ok
+      %{errors: errors} -> {:error, %{message: :invalid_params, errors: errors}}
+    end
+  end
+
+  defp validate_opt(%{opts: opts} = validator, key, function, message) do
+    if !Keyword.has_key?(opts, key) || function.(opts[key]) do
+      validator
+    else
+      validator
+      |> Map.update!(:errors, &(&1 ++ [{key, message}]))
+    end
+  end
 end
