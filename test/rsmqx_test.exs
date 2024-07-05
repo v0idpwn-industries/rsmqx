@@ -2,7 +2,63 @@ defmodule RsmqxTest do
   use ExUnit.Case
   doctest Rsmqx
 
-  test "greets the world" do
-    assert Rsmqx.hello() == :world
+  setup_all do
+    {:ok, conn} = Redix.start_link(sync_connect: true)
+    Redix.command!(conn, ["FLUSHALL"])
+    :ok = Redix.stop(conn)
+    :ok
   end
+
+  setup do
+    {:ok, conn} = Redix.start_link()
+    name = generate_name()
+
+    Rsmqx.create_queue(conn, name)
+
+    %{conn: conn, queue_name: name}
+  end
+
+  describe "create_queue/3" do
+    test "success without opts", %{conn: conn} do
+      name = generate_name()
+
+      Rsmqx.create_queue(conn, name)
+
+      {:ok, queues} = Redix.command(conn, ["smembers", "rsmq:QUEUES"])
+
+      assert name in queues
+
+      assert get_all(conn, "rsmq:#{name}:Q") == [
+               "vt",
+               "30",
+               "delay",
+               "0",
+               "maxsize",
+               "65536"
+             ]
+    end
+
+    test "success with opts", %{conn: conn} do
+      name = generate_name()
+
+      Rsmqx.create_queue(conn, name, vt: 40, delay: 10, maxsize: 10400)
+
+      {:ok, queues} = Redix.command(conn, ["smembers", "rsmq:QUEUES"])
+
+      assert name in queues
+
+      assert get_all(conn, "rsmq:#{name}:Q") == [
+               "vt",
+               "40",
+               "delay",
+               "10",
+               "maxsize",
+               "10400"
+             ]
+    end
+  end
+
+  defp generate_name, do: "q-#{Enum.random(100_000..999_999)}"
+
+  defp get_all(conn, name), do: Redix.command!(conn, ["hgetall", name])
 end
