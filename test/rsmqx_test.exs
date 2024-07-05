@@ -22,7 +22,7 @@ defmodule RsmqxTest do
     test "success without opts", %{conn: conn} do
       name = generate_name()
 
-      Rsmqx.create_queue(conn, name)
+      assert Rsmqx.create_queue(conn, name) == :ok
 
       {:ok, queues} = Redix.command(conn, ["smembers", "rsmq:QUEUES"])
 
@@ -41,7 +41,7 @@ defmodule RsmqxTest do
     test "success with opts", %{conn: conn} do
       name = generate_name()
 
-      Rsmqx.create_queue(conn, name, vt: 40, delay: 10, maxsize: 10400)
+      assert Rsmqx.create_queue(conn, name, vt: 40, delay: 10, maxsize: 10400) == :ok
 
       {:ok, queues} = Redix.command(conn, ["smembers", "rsmq:QUEUES"])
 
@@ -55,6 +55,10 @@ defmodule RsmqxTest do
                "maxsize",
                "10400"
              ]
+    end
+
+    test "fail when queue exists", %{conn: conn, queue_name: name} do
+      assert Rsmqx.create_queue(conn, name) == {:error, :queue_exists}
     end
   end
 
