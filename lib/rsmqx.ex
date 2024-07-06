@@ -42,6 +42,73 @@ defmodule Rsmqx do
   """
   def list_queues(conn), do: Redix.command(conn, ["smembers", @queue_indexator])
 
+  def get_queue(conn, queue_name, create_id? \\ false) do
+    key = queue_key(queue_name)
+
+    [
+      ["hmget", key, "vt", "delay", "maxsize"],
+      ["time"]
+    ]
+    |> then(&Redix.transaction_pipeline(conn, &1))
+    |> case do
+      {:ok, [[nil, _, _], _]} ->
+        {:error, :queue_not_found}
+
+      {:ok, [[vt, delay, maxsize], [seconds, microseconds]]} ->
+        timestamp = create_timestamp(seconds, microseconds)
+
+        %{
+          vt: vt,
+          delay: delay,
+          maxsize: maxsize,
+          ts: timestamp
+        }
+        |> maybe_add_id(create_id?, seconds, microseconds)
+        |> then(&{:ok, &1})
+
+      error ->
+        error
+    end
+  end
+
+  defp create_timestamp(seconds, microseconds) do
+    microseconds
+    |> String.pad_leading(6, "0")
+    |> String.slice(0, 3)
+    |> then(&"#{seconds}#{&1}")
+  end
+
+  @base36 "0123456789abcdefghijklmnopqrstuvwxyz"
+  defp maybe_add_id(data, true, seconds, microseconds) do
+    seconds = String.to_integer(seconds)
+    microseconds = String.to_integer(microseconds)
+
+    base36_timestamp = to_base36(seconds * 10 ** 6 + microseconds)
+    random_part = random_base36(22)
+
+    id = "#{base36_timestamp}#{random_part}"
+
+    data |> Map.put(:id, id)
+  end
+
+  defp maybe_add_id(data, _, _, _), do: data
+
+  defp to_base36(int),
+    do:
+      int
+      |> Integer.digits(36)
+      |> Enum.map(&(@base36 |> String.at(&1)))
+      |> Enum.join()
+
+  defp random_base36(length) do
+    1..length
+    |> Enum.map(fn _ ->
+      @base36
+      |> String.at(Enum.random(0..35))
+    end)
+    |> Enum.join()
+  end
+
   defp queue_key(queue_name), do: "rsmq:#{queue_name}:Q"
 
   defp handle_result({:error, error}, _, _), do: {:error, error}
