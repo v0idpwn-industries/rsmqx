@@ -43,6 +43,27 @@ defmodule Rsmqx do
   def list_queues(conn), do: Redix.command(conn, ["smembers", @queue_list])
 
   @doc """
+  Delete queue
+  """
+  def delete_queue(conn, queue_name) do
+    data_key = queue_data_key(queue_name)
+    messages_key = queue_messages_key(queue_name)
+
+    Redix.pipeline(
+      conn,
+      [
+        ["del", data_key, messages_key],
+        ["srem", @queue_list, queue_name]
+      ]
+    )
+    |> case do
+      {:ok, [0, _]} -> {:error, :queue_not_found}
+      {:ok, _} -> :ok
+      error -> error
+    end
+  end
+
+  @doc """
   Insert message into queue
   """
   def send_message(conn, queue_name, message, opts \\ []) do
@@ -91,12 +112,13 @@ defmodule Rsmqx do
       [
         ["zrem", messages_key, id],
         ["hdel", data_key, id, "#{id}:rc", "#{id}:fr"]
-      ])
-      |> case do
-        {:ok, [1, hdel]} when hdel > 0 -> :ok
-        {:ok, _} -> {:error, :message_not_found}
-        error -> error
-      end
+      ]
+    )
+    |> case do
+      {:ok, [1, hdel]} when hdel > 0 -> :ok
+      {:ok, _} -> {:error, :message_not_found}
+      error -> error
+    end
   end
 
   defp get_queue_attrs(conn, queue_name, create_id? \\ false) do

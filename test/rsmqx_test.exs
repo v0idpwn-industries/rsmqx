@@ -93,6 +93,26 @@ defmodule RsmqxTest do
     end
   end
 
+  describe "delete_queue/2" do
+    test "success", %{conn: conn, queue_name: name} do
+      Rsmqx.send_message(conn, name, "test")
+
+      assert match?([_], get_queue_messages(conn, name))
+
+      :ok = Rsmqx.delete_queue(conn, name)
+
+      {:ok, queues} = Redix.command(conn, ["smembers", "rsmq:QUEUES"])
+
+      refute name in queues
+      assert match?([], get_queue_messages(conn, name))
+    end
+
+    test "fail when queue don't exists", %{conn: conn, queue_name: name} do
+      Rsmqx.delete_queue(conn, name)
+      assert {:error, :queue_not_found} == Rsmqx.delete_queue(conn, name)
+    end
+  end
+
   describe "send_message/4" do
     test "successfully includes in queue", %{conn: conn, queue_name: name} do
       message = "hello world - #{uuid4()}"
@@ -175,5 +195,4 @@ defmodule RsmqxTest do
   defp get_queue_messages(conn, name), do: Redix.command!(conn, ["zrange", "rsmq:#{name}", 0, -1])
 
   defp data_key(queue_name), do: "rsmq:#{queue_name}:Q"
-  defp messages_key(queue_name), do: "rsmq:#{queue_name}"
 end
