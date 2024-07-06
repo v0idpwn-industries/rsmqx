@@ -40,7 +40,7 @@ defmodule Rsmqx do
   @doc """
   List all queues
   """
-  def list_queues(conn), do: Redix.command(conn, ["smembers", @queue_list])
+  def list_queues(conn), do: Redix.command!(conn, ["smembers", @queue_list])
 
   @doc """
   Delete queue

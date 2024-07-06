@@ -87,7 +87,7 @@ defmodule RsmqxTest do
 
   describe "list_queues/1" do
     test "success", %{conn: conn, queue_name: name} do
-      {:ok, queues} = Rsmqx.list_queues(conn)
+      queues = Rsmqx.list_queues(conn)
 
       assert name in queues
     end
