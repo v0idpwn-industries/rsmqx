@@ -101,6 +101,66 @@ defmodule Rsmqx do
   end
 
   @doc """
+  Receive the next message in the queue
+  """
+  def receive_message(conn, queue_name, params \\ []) do
+    with :ok <- validate_params(params),
+         {:ok, queue} <- get_queue_attrs(conn, queue_name),
+         queue <- Map.put(queue, :vt, params[:vt] || queue.vt),
+         any <- do_receive_message(conn, queue_name, queue) do
+      any
+    else
+      error -> error
+    end
+  end
+
+  defp do_receive_message(conn, queue_name, queue, retrial? \\ false) do
+    hash = get_receive_script_hash(conn)
+    key = queue_messages_key(queue_name)
+
+    Redix.command(conn, ["evalsha", hash, 3, key, queue.ts, queue.ts + queue.vt * 1000])
+    |> handle_receive_result(conn, queue_name, queue, retrial?)
+  end
+
+  defp get_receive_script_hash(conn) do
+    case :persistent_term.get(:rsmqx_receive_message_script, nil) do
+      nil -> load_receive_script(conn)
+      hash -> hash
+    end
+  end
+
+  # This is to try to reload the script in case of flush or restart,
+  # but prevent infinite reload tries loop in case of being unable to load script
+  defp handle_receive_result(result, conn, queue_name, queue, retrial?) do
+    case result do
+      {:error,
+       %Redix.Error{
+         message: "NOSCRIPT No matching script. Please use EVAL."
+       }} ->
+        if retrial? do
+          raise "unable to load \"receive_message.lua\" script"
+        else
+          load_receive_script(conn)
+          do_receive_message(conn, queue_name, queue, true)
+        end
+
+      result ->
+        result
+    end
+  end
+
+  defp load_receive_script(conn) do
+    with scr <- File.read!("redis/receive_message.lua"),
+         {:ok, hash} <- Redix.command(conn, ["script", "load", scr]) do
+      :persistent_term.put(:rsmqx_receive_message_script, hash)
+
+      hash
+    else
+      _ -> raise "Error on loading lua script for receiving messages"
+    end
+  end
+
+  @doc """
   Remove message from queue
   """
   def delete_message(conn, queue_name, id) do

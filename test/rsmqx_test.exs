@@ -158,6 +158,63 @@ defmodule RsmqxTest do
     end
   end
 
+  describe "receive_message/2" do
+    test "basic success cases", %{conn: conn, queue_name: name} do
+
+      message1 = "hello world"
+      message2 = "test"
+      message3 = "more test"
+
+      {:ok, id1} = Rsmqx.send_message(conn, name, message1, vt: 1000)
+      {:ok, id2} = Rsmqx.send_message(conn, name, message2)
+      {:ok, id3} = Rsmqx.send_message(conn, name, message3)
+
+      :persistent_term.erase(:rsmqx_receive_message_script)
+
+      assert match?({:ok, [^id1, ^message1, _, _]}, Rsmqx.receive_message(conn, name))
+      assert match?({:ok, [^id2, ^message2, _, _]}, Rsmqx.receive_message(conn, name))
+      assert match?({:ok, [^id3, ^message3, _, _]}, Rsmqx.receive_message(conn, name))
+      assert {:ok, []} == Rsmqx.receive_message(conn, name)
+
+      assert :persistent_term.get(:rsmqx_receive_message_script, nil)
+    end
+
+    test "delay works properly", %{conn: conn, queue_name: name} do
+      message1 = "hello world"
+      message2 = "test"
+      message3 = "more test"
+
+      {:ok, id1} = Rsmqx.send_message(conn, name, message1)
+      {:ok, _id2} = Rsmqx.send_message(conn, name, message2, delay: 1)
+      {:ok, id3} = Rsmqx.send_message(conn, name, message3)
+
+      assert match?({:ok, [^id1, ^message1, _, _]}, Rsmqx.receive_message(conn, name))
+      assert match?({:ok, [^id3, ^message3, _, _]}, Rsmqx.receive_message(conn, name))
+      assert {:ok, []} == Rsmqx.receive_message(conn, name)
+    end
+
+    test "script will be reloaded in case of flush or restart", %{conn: conn, queue_name: name} do
+      {:ok, _} = Rsmqx.receive_message(conn, name)
+
+      assert hash = :persistent_term.get(:rsmqx_receive_message_script, nil)
+      assert {:ok, [1]} == Redix.command(conn, ["script", "exists", hash])
+
+      # flush script
+      Redix.command(conn, ["script", "flush"])
+
+      refute {:ok, [1]} == Redix.command(conn, ["script", "exists", hash])
+
+      {:ok, _} = Rsmqx.receive_message(conn, name)
+
+      assert {:ok, [1]} == Redix.command(conn, ["script", "exists", hash])
+    end
+
+    test "failure when queue don't exists", %{conn: conn} do
+        name = "not_found"
+        assert {:error, :queue_not_found} == Rsmqx.receive_message(conn, name)
+    end
+  end
+
   describe "delete_message/3" do
     test "success case", %{conn: conn, queue_name: name} do
       message = "test"
