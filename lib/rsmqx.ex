@@ -58,9 +58,9 @@ defmodule Rsmqx do
         timestamp = create_timestamp(seconds, microseconds)
 
         %{
-          vt: vt,
-          delay: delay,
-          maxsize: maxsize,
+          vt: String.to_integer(vt),
+          delay: String.to_integer(delay),
+          maxsize: String.to_integer(maxsize),
           ts: timestamp
         }
         |> maybe_add_id(create_id?, seconds, microseconds)
@@ -76,6 +76,7 @@ defmodule Rsmqx do
     |> String.pad_leading(6, "0")
     |> String.slice(0, 3)
     |> then(&"#{seconds}#{&1}")
+    |> String.to_integer()
   end
 
   @base36 "0123456789abcdefghijklmnopqrstuvwxyz"
