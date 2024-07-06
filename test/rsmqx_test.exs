@@ -1,5 +1,6 @@
 defmodule RsmqxTest do
   use ExUnit.Case
+  import UUID
   doctest Rsmqx
 
   setup_all do
@@ -11,7 +12,7 @@ defmodule RsmqxTest do
 
   setup do
     {:ok, conn} = Redix.start_link()
-    name = generate_name()
+    name = uuid4()
 
     Rsmqx.create_queue(conn, name)
 
@@ -20,7 +21,7 @@ defmodule RsmqxTest do
 
   describe "create_queue/3" do
     test "success without opts", %{conn: conn} do
-      name = generate_name()
+      name = uuid4()
 
       assert Rsmqx.create_queue(conn, name) == :ok
 
@@ -39,7 +40,7 @@ defmodule RsmqxTest do
     end
 
     test "success with opts", %{conn: conn} do
-      name = generate_name()
+      name = uuid4()
 
       assert Rsmqx.create_queue(conn, name, vt: 40, delay: 10, maxsize: 10400) == :ok
 
@@ -92,7 +93,58 @@ defmodule RsmqxTest do
     end
   end
 
-  defp generate_name, do: "q-#{Enum.random(100_000..999_999)}"
+  describe "send_message/4" do
+    test "successfully includes in queue", %{conn: conn, queue_name: name} do
+      message = "hello world - #{uuid4()}"
+      {:ok, id} = Rsmqx.send_message(conn, name, message)
 
+      assert id in get_queue_messages(conn, name)
+      assert [message] == get_member(conn, data_key(name), id)
+    end
+
+    test "delay properly affects order", %{conn: conn, queue_name: name} do
+      {:ok, id2} = Rsmqx.send_message(conn, name, "test", delay: 10)
+      {:ok, id3} = Rsmqx.send_message(conn, name, "test", delay: 20)
+      {:ok, id1} = Rsmqx.send_message(conn, name, "test")
+
+      assert get_queue_messages(conn, name) == [id1, id2, id3]
+    end
+
+    test "maxsize set as -1 works as infinite size", %{conn: conn} do
+      name = uuid4()
+
+      Rsmqx.create_queue(conn, name, maxsize: -1)
+
+      message = get_really_big_message()
+
+      {:ok, id} = Rsmqx.send_message(conn, name, message)
+
+      assert id in get_queue_messages(conn, name)
+      assert [message] == get_member(conn, data_key(name), id)
+    end
+
+    test "fail when queue don't exists", %{conn: conn} do
+      assert {:error, :queue_not_found} == Rsmqx.send_message(conn, "asdf", "test")
+    end
+
+    test "fail when message is bigger than maxsize", %{conn: conn} do
+      name = uuid4()
+
+      Rsmqx.create_queue(conn, name, maxsize: 2)
+
+      message = "123"
+
+      assert {:error, :message_too_long} == Rsmqx.send_message(conn, name, message)
+    end
+  end
+
+  defp get_really_big_message, do: File.read!("test/test_helper/big_message.txt")
+
+  defp get_member(conn, set, member), do: Redix.command!(conn, ["hmget", set, member])
   defp get_all(conn, name), do: Redix.command!(conn, ["hgetall", name])
+
+  defp get_queue_messages(conn, name), do: Redix.command!(conn, ["zrange", "rsmq:#{name}", 0, -1])
+
+  defp data_key(queue_name), do: "rsmq:#{queue_name}:Q"
+  defp messages_key(queue_name), do: "rsmq:#{queue_name}"
 end

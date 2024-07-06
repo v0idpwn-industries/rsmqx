@@ -3,13 +3,13 @@ defmodule Rsmqx do
   Documentation for `Rsmqx`.
   """
 
-  @queue_indexator "rsmq:QUEUES"
+  @queue_list "rsmq:QUEUES"
 
   @doc """
   Create a queue for messages
   """
   def create_queue(conn, queue_name, opts \\ []) do
-    key = queue_key(queue_name)
+    key = queue_data_key(queue_name)
 
     with :ok <- validate_params([{:queue_name, queue_name} | opts]),
          :ok <- do_create_queue(conn, key, opts),
@@ -33,23 +33,62 @@ defmodule Rsmqx do
   end
 
   defp index_queue(conn, queue_name) do
-    Redix.command(conn, ["sadd", @queue_indexator, queue_name])
+    Redix.command(conn, ["sadd", @queue_list, queue_name])
     |> handle_result(1, :queue_index_exists)
   end
 
   @doc """
   List all queues
   """
-  def list_queues(conn), do: Redix.command(conn, ["smembers", @queue_indexator])
+  def list_queues(conn), do: Redix.command(conn, ["smembers", @queue_list])
 
-  def get_queue(conn, queue_name, create_id? \\ false) do
-    key = queue_key(queue_name)
+  @doc """
+  Insert message into queue
+  """
+  def send_message(conn, queue_name, message, opts \\ []) do
+    opts = [queue_name: queue_name, message: message] ++ opts
 
-    [
-      ["hmget", key, "vt", "delay", "maxsize"],
-      ["time"]
-    ]
-    |> then(&Redix.transaction_pipeline(conn, &1))
+    with :ok <- validate_params(opts),
+         {:ok, queue} <- get_queue_attrs(conn, queue_name, true),
+         :ok <- validate_message_size(queue, message) do
+      messages_key = queue_messages_key(queue_name)
+      data_key = queue_data_key(queue_name)
+      delay = opts[:delay] || queue.delay
+
+      Redix.transaction_pipeline(
+        conn,
+        [
+          ["zadd", messages_key, queue.ts + delay * 1000, queue.id],
+          ["hset", data_key, queue.id, message],
+          ["hincrby", data_key, "totalsent", 1]
+        ]
+      )
+      |> case do
+        {:ok, [1, 1, _]} -> {:ok, queue.id}
+        {:ok, result} -> {:error, %{message: :unexpected_redis_return, result: result}}
+        error -> error
+      end
+    else
+      error -> error
+    end
+  end
+
+  defp validate_message_size(queue, message) do
+    if queue.maxsize == -1 || String.length(message) <= queue.maxsize,
+      do: :ok,
+      else: {:error, :message_too_long}
+  end
+
+  defp get_queue_attrs(conn, queue_name, create_id? \\ false) do
+    key = queue_data_key(queue_name)
+
+    Redix.transaction_pipeline(
+      conn,
+      [
+        ["hmget", key, "vt", "delay", "maxsize"],
+        ["time"]
+      ]
+    )
     |> case do
       {:ok, [[nil, _, _], _]} ->
         {:error, :queue_not_found}
@@ -110,7 +149,8 @@ defmodule Rsmqx do
     |> Enum.join()
   end
 
-  defp queue_key(queue_name), do: "rsmq:#{queue_name}:Q"
+  defp queue_data_key(queue_name), do: "rsmq:#{queue_name}:Q"
+  defp queue_messages_key(queue_name), do: "rsmq:#{queue_name}"
 
   defp handle_result({:error, error}, _, _), do: {:error, error}
   defp handle_result({:ok, resp}, expected, _) when resp == expected, do: :ok
@@ -119,6 +159,7 @@ defmodule Rsmqx do
   defp validate_params(opts) do
     %{opts: opts, errors: []}
     |> validate_opt(:queue_name, &is_binary/1, "must be string")
+    |> validate_opt(:message, &is_binary/1, "must be string")
     |> validate_opt(:vt, &is_integer/1, "must be integer")
     |> validate_opt(:delay, &is_integer/1, "must be integer")
     |> validate_opt(:maxsize, &is_integer/1, "must be integer")
