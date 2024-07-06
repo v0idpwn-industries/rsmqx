@@ -8,11 +8,11 @@ defmodule Rsmqx do
   @doc """
   Create a queue for messages
   """
-  def create_queue(conn, queue_name, opts \\ []) do
+  def create_queue(conn, queue_name, params \\ []) do
     key = queue_data_key(queue_name)
 
-    with :ok <- validate_params([{:queue_name, queue_name} | opts]),
-         :ok <- do_create_queue(conn, key, opts),
+    with :ok <- validate_params([{:queue_name, queue_name} | params]),
+         :ok <- do_create_queue(conn, key, params),
          :ok <- index_queue(conn, queue_name) do
       :ok
     else
@@ -20,12 +20,12 @@ defmodule Rsmqx do
     end
   end
 
-  defp do_create_queue(conn, key, opts) do
+  defp do_create_queue(conn, key, params) do
     pipeline =
       [
-        ["hsetnx", key, :vt, opts[:vt] || 30],
-        ["hsetnx", key, :delay, opts[:delay] || 0],
-        ["hsetnx", key, :maxsize, opts[:maxsize] || 65536]
+        ["hsetnx", key, :vt, params[:vt] || 30],
+        ["hsetnx", key, :delay, params[:delay] || 0],
+        ["hsetnx", key, :maxsize, params[:maxsize] || 65536]
       ]
 
     Redix.transaction_pipeline(conn, pipeline)
@@ -66,15 +66,15 @@ defmodule Rsmqx do
   @doc """
   Insert message into queue
   """
-  def send_message(conn, queue_name, message, opts \\ []) do
-    opts = [queue_name: queue_name, message: message] ++ opts
+  def send_message(conn, queue_name, message, params \\ []) do
+    params = [queue_name: queue_name, message: message] ++ params
 
-    with :ok <- validate_params(opts),
+    with :ok <- validate_params(params),
          {:ok, queue} <- get_queue_attrs(conn, queue_name, true),
          :ok <- validate_message_size(queue, message) do
       messages_key = queue_messages_key(queue_name)
       data_key = queue_data_key(queue_name)
-      delay = opts[:delay] || queue.delay
+      delay = params[:delay] || queue.delay
 
       Redix.transaction_pipeline(
         conn,
@@ -198,21 +198,21 @@ defmodule Rsmqx do
   defp handle_result({:ok, resp}, expected, _) when resp == expected, do: :ok
   defp handle_result(_, _, error_message), do: {:error, error_message}
 
-  defp validate_params(opts) do
-    %{opts: opts, errors: []}
-    |> validate_opt(:queue_name, &is_binary/1, "must be string")
-    |> validate_opt(:message, &is_binary/1, "must be string")
-    |> validate_opt(:vt, &is_integer/1, "must be integer")
-    |> validate_opt(:delay, &is_integer/1, "must be integer")
-    |> validate_opt(:maxsize, &is_integer/1, "must be integer")
+  defp validate_params(params) do
+    %{params: params, errors: []}
+    |> validate_param(:queue_name, &is_binary/1, "must be string")
+    |> validate_param(:message, &is_binary/1, "must be string")
+    |> validate_param(:vt, &is_integer/1, "must be integer")
+    |> validate_param(:delay, &is_integer/1, "must be integer")
+    |> validate_param(:maxsize, &is_integer/1, "must be integer")
     |> case do
       %{errors: []} -> :ok
       %{errors: errors} -> {:error, %{message: :invalid_params, errors: errors}}
     end
   end
 
-  defp validate_opt(%{opts: opts} = validator, key, function, message) do
-    if !Keyword.has_key?(opts, key) || function.(opts[key]) do
+  defp validate_param(%{params: params} = validator, key, function, message) do
+    if !Keyword.has_key?(params, key) || function.(params[key]) do
       validator
     else
       validator
