@@ -138,6 +138,35 @@ defmodule RsmqxTest do
     end
   end
 
+  describe "delete_message/3" do
+    test "success case", %{conn: conn, queue_name: name} do
+      message = "test"
+
+      {:ok, id} = Rsmqx.send_message(conn, name, message)
+
+      assert id in get_queue_messages(conn, name)
+      assert [message] == get_member(conn, data_key(name), id)
+
+      assert :ok == Rsmqx.delete_message(conn, name, id)
+
+      refute id in get_queue_messages(conn, name)
+      refute [message] == get_member(conn, data_key(name), id)
+    end
+
+    test "fail when queue don't exists", %{conn: conn} do
+      name = "not_found"
+      id = "whatever"
+
+      assert {:error, :message_not_found} == Rsmqx.delete_message(conn, name, id)
+    end
+
+    test "fail when queue exists but message don't", %{conn: conn, queue_name: name} do
+      id = "not_found"
+
+      assert {:error, :message_not_found} == Rsmqx.delete_message(conn, name, id)
+    end
+  end
+
   defp get_really_big_message, do: File.read!("test/test_helper/big_message.txt")
 
   defp get_member(conn, set, member), do: Redix.command!(conn, ["hmget", set, member])

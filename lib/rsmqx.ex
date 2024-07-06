@@ -79,6 +79,26 @@ defmodule Rsmqx do
       else: {:error, :message_too_long}
   end
 
+  @doc """
+  Remove message from queue
+  """
+  def delete_message(conn, queue_name, id) do
+    messages_key = queue_messages_key(queue_name)
+    data_key = queue_data_key(queue_name)
+
+    Redix.pipeline(
+      conn,
+      [
+        ["zrem", messages_key, id],
+        ["hdel", data_key, id, "#{id}:rc", "#{id}:fr"]
+      ])
+      |> case do
+        {:ok, [1, hdel]} when hdel > 0 -> :ok
+        {:ok, _} -> {:error, :message_not_found}
+        error -> error
+      end
+  end
+
   defp get_queue_attrs(conn, queue_name, create_id? \\ false) do
     key = queue_data_key(queue_name)
 
