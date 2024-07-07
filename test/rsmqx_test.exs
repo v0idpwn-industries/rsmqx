@@ -160,7 +160,6 @@ defmodule RsmqxTest do
 
   describe "receive_message/2" do
     test "basic success cases", %{conn: conn, queue_name: name} do
-
       message1 = "hello world"
       message2 = "test"
       message3 = "more test"
@@ -210,8 +209,8 @@ defmodule RsmqxTest do
     end
 
     test "failure when queue don't exists", %{conn: conn} do
-        name = "not_found"
-        assert {:error, :queue_not_found} == Rsmqx.receive_message(conn, name)
+      name = "not_found"
+      assert {:error, :queue_not_found} == Rsmqx.receive_message(conn, name)
     end
   end
 
