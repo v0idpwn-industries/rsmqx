@@ -3,7 +3,10 @@ defmodule Rsmqx do
   Documentation for `Rsmqx`.
   """
 
+  @external_resource "priv/redis/receive_message.lua"
+
   @queue_list "rsmq:QUEUES"
+  @receive_message_src File.read!("priv/redis/receive_message.lua")
 
   @doc """
   Create a queue for messages
@@ -150,8 +153,7 @@ defmodule Rsmqx do
   end
 
   defp load_receive_script(conn) do
-    with scr <- File.read!("redis/receive_message.lua"),
-         {:ok, hash} <- Redix.command(conn, ["script", "load", scr]) do
+    with {:ok, hash} <- Redix.command(conn, ["script", "load", @receive_message_src]) do
       :persistent_term.put(:rsmqx_receive_message_script, hash)
 
       hash
